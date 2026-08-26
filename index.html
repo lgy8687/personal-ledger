@@ -583,14 +583,24 @@
     el.className = cls || "";
   }
 
+  function base64ToUtf8(b64) {
+    const bin = atob(b64.replace(/\s/g, ""));
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
+
   async function loadCloud() {
+    const token = getCloudToken();
+    const url = token ? CLOUD_API : CLOUD_RAW;
+    const headers = token ? { Authorization: "Bearer " + token } : {};
     try {
-      const r = await fetch(CLOUD_RAW);
+      const r = await fetch(url, { headers });
       if (!r.ok) return false;
       const d = await r.json();
-      if (d && d.home && d.catalog) {
-        home = Object.assign({}, home, d.home);
-        catalog = d.catalog;
+      const data = token ? (d.content ? JSON.parse(base64ToUtf8(d.content)) : null) : d;
+      if (data && data.home && data.catalog) {
+        home = Object.assign({}, home, data.home);
+        catalog = data.catalog;
         saveHome(); saveCatalog();
         return true;
       }
