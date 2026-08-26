@@ -153,6 +153,24 @@
   .picker-tip { font-size: 12px; color: var(--muted); }
   .picker-add { border: none; background: #2563eb; color: #fff; font-size: 14px; font-weight: 600; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
   .picker-add:disabled { background: #cbd5e1; cursor: not-allowed; }
+  .cloud-btn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 2px 10px; font-size: 13px; cursor: pointer; color: var(--muted); }
+  .cloud-btn:hover { color: #111; border-color: #2563eb; }
+  .cloud-panel { position: fixed; right: 12px; top: 12px; width: 300px; max-width: calc(100vw - 24px); background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.16); z-index: 300; padding: 14px; display: none; }
+  .cloud-panel.active { display: block; }
+  .cloud-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; margin-bottom: 10px; font-size: 15px; }
+  .cloud-x { border: none; background: transparent; font-size: 16px; color: var(--muted); cursor: pointer; }
+  .cloud-row { margin-bottom: 10px; font-size: 13px; }
+  .cloud-row label { display: block; color: var(--muted); margin-bottom: 4px; }
+  .cloud-row input { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 13px; outline: none; box-sizing: border-box; }
+  .cloud-row input:focus { border-color: #2563eb; }
+  .cloud-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+  .cloud-actions button { flex: 1; border: none; border-radius: 6px; padding: 8px; font-size: 13px; cursor: pointer; }
+  .cloud-save { background: #2563eb; color: #fff; }
+  .cloud-load { background: var(--bg); color: #111; }
+  .cloud-clear { background: var(--red-light); color: var(--red); }
+  .cloud-tip { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  #cloudStatus.ok { color: var(--green); }
+  #cloudStatus.warn { color: var(--red); }
 
   /* 日历 */
   .cal-year {
@@ -193,6 +211,7 @@
       <span>编制单位：<input id="unitName" value="个人" /></span>
       <span><input type="month" id="sheetMonth" value="2026-01" /></span>
       <span>单位：元</span>
+      <button id="cloudBtn" class="cloud-btn" title="云端同步">☁ 云端</button>
     </div>
 
     <div class="columns">
@@ -277,6 +296,22 @@
   <a href="#" data-tab="stats">统计</a>
 </nav>
 
+  <!-- 云端同步面板 -->
+  <div class="cloud-panel" id="cloudPanel">
+    <div class="cloud-head">云端同步 <button id="cloudClose" class="cloud-x">✕</button></div>
+    <div class="cloud-row">
+      <label>GitHub Token（仅本机保存，不上传）</label>
+      <input id="cloudToken" type="password" placeholder="粘贴 fine-grained token" autocomplete="off" />
+    </div>
+    <div class="cloud-row">状态：<b id="cloudStatus">未配置</b></div>
+    <div class="cloud-actions">
+      <button id="cloudSave" class="cloud-save">立即同步</button>
+      <button id="cloudLoad" class="cloud-load">拉取云端</button>
+      <button id="cloudClear" class="cloud-clear">清除</button>
+    </div>
+    <div class="cloud-tip">数据写入公开仓库，任何知道网址的人都能读取；Token 只存在你本机浏览器，不会上传到仓库。</div>
+  </div>
+
 <script>
   const HOME_KEY = "ledger-home-v2";
   const CAT_KEY = "ledger-catalog-v1";
@@ -286,6 +321,12 @@
   let pickerMode = "multi";   // 'multi' = 批量添加；'single' = 改某行
   let pickerRow = null;
   let pickerSel = new Set();
+
+  // 云端同步（方案A：数据存公开仓库的 ledger-data.json）
+  const CLOUD_FILE = "ledger-data.json";
+  const CLOUD_REPO = "lgy8687/personal-ledger";
+  const CLOUD_RAW = `https://raw.githubusercontent.com/${CLOUD_REPO}/main/${CLOUD_FILE}`;
+  const CLOUD_API = `https://api.github.com/repos/${CLOUD_REPO}/contents/${CLOUD_FILE}`;
 
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -334,6 +375,7 @@
   }
   function saveHome() {
     try { localStorage.setItem(HOME_KEY, JSON.stringify(home)); } catch (e) { console.warn("保存首页失败", e); }
+    scheduleCloudSave();
   }
   function loadCatalog() {
     try {
@@ -346,6 +388,7 @@
   }
   function saveCatalog() {
     try { localStorage.setItem(CAT_KEY, JSON.stringify(catalog)); } catch (e) { console.warn("保存目录失败", e); }
+    scheduleCloudSave();
   }
 
   function currentKey() { return `${home.year}-${String(home.month).padStart(2, "0")}`; }
@@ -528,6 +571,77 @@
     saveHome();
   }
   function closePicker() { $("pickerOverlay").classList.remove("active"); }
+
+  /* ---------- 云端同步（方案A：公开仓库 JSON） ---------- */
+  function getCloudToken() { return localStorage.getItem("ledger-cloud-token") || ""; }
+  function setCloudToken(t) { if (t) localStorage.setItem("ledger-cloud-token", t); else localStorage.removeItem("ledger-cloud-token"); }
+
+  function setCloudStatus(text, cls) {
+    const el = $("cloudStatus");
+    if (!el) return;
+    el.textContent = text;
+    el.className = cls || "";
+  }
+
+  async function loadCloud() {
+    try {
+      const r = await fetch(CLOUD_RAW);
+      if (!r.ok) return false;
+      const d = await r.json();
+      if (d && d.home && d.catalog) {
+        home = Object.assign({}, home, d.home);
+        catalog = d.catalog;
+        saveHome(); saveCatalog();
+        return true;
+      }
+    } catch (e) { console.warn("拉取云端失败", e); }
+    return false;
+  }
+
+  let saveCloudTimer = null;
+  function scheduleCloudSave() {
+    if (!getCloudToken()) { setCloudStatus("未配置", "warn"); return; }
+    clearTimeout(saveCloudTimer);
+    setCloudStatus("待同步…");
+    saveCloudTimer = setTimeout(saveCloud, 2500);
+  }
+
+  function utf8ToBase64(str) {
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    bytes.forEach((b) => { bin += String.fromCharCode(b); });
+    return btoa(bin);
+  }
+
+  async function saveCloud() {
+    const token = getCloudToken();
+    if (!token) { setCloudStatus("未配置", "warn"); return; }
+    const payload = JSON.stringify({ home, catalog });
+    const content = utf8ToBase64(payload);
+    setCloudStatus("同步中…");
+    let sha = null;
+    try {
+      const head = await fetch(CLOUD_API, { headers: { Authorization: "Bearer " + token } });
+      if (head.ok) { const j = await head.json(); sha = j.sha; }
+    } catch (e) {}
+    const body = { message: "sync ledger data", content };
+    if (sha) body.sha = sha;
+    try {
+      const res = await fetch(CLOUD_API, {
+        method: "PUT",
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (res.ok) setCloudStatus("已同步 " + new Date().toLocaleTimeString(), "ok");
+      else { setCloudStatus("同步失败 " + res.status, "warn"); console.warn(await res.text()); }
+    } catch (e) { setCloudStatus("同步失败", "warn"); }
+  }
+
+  function renderByView() {
+    if (activeView === "home") renderHome();
+    else if (activeView === "assets") renderCatalog();
+    else if (activeView === "calendar") renderCalendar();
+  }
 
   /* ---------- 资产：账户目录 ---------- */
   function renderCatalog() {
@@ -735,12 +849,21 @@
   $("pickerOverlay").addEventListener("click", (e) => { if (e.target === $("pickerOverlay")) closePicker(); });
   $("pickerClose").addEventListener("click", closePicker);
   $("pickerAdd").addEventListener("click", applyPicker);
+  $("cloudBtn").addEventListener("click", () => $("cloudPanel").classList.toggle("active"));
+  $("cloudClose").addEventListener("click", () => $("cloudPanel").classList.remove("active"));
+  $("cloudToken").addEventListener("change", (e) => {
+    setCloudToken(e.target.value.trim());
+    if (getCloudToken()) loadCloud().then(() => { renderByView(); setCloudStatus("已拉取云端", "ok"); });
+  });
+  $("cloudSave").addEventListener("click", saveCloud);
+  $("cloudLoad").addEventListener("click", () => loadCloud().then(() => { renderByView(); setCloudStatus("已拉取云端", "ok"); }));
+  $("cloudClear").addEventListener("click", () => { setCloudToken(""); $("cloudToken").value = ""; setCloudStatus("未配置", "warn"); });
   $("calPrev").addEventListener("click", () => { home.year--; renderCalendar(); saveHome(); });
   $("calNext").addEventListener("click", () => { home.year++; renderCalendar(); saveHome(); });
 
   loadHome();
   loadCatalog();
-  switchTab("home");
+  loadCloud().finally(() => switchTab("home"));
 </script>
 </body>
 </html>
