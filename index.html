@@ -309,7 +309,7 @@
       <button id="cloudLoad" class="cloud-load">从云端下载</button>
       <button id="cloudClear" class="cloud-clear">清除</button>
     </div>
-    <div class="cloud-tip">平时不用管这两个按钮：改了数字会自动上传，换设备打开会自动下载。它们只用于手动刷新。<br>数据写入公开仓库，任何知道网址的人都能读取；Token 只存在你本机浏览器，不会上传到仓库。</div>
+    <div class="cloud-tip">平时不用管这两个按钮：改了数字会自动上传，换设备打开会自动下载。它们只用于手动刷新。<br>数据写入公开仓库，任何知道网址的人都能读取；Token 仅保存在你本机浏览器，不会上传到仓库。</div>
   </div>
 
 <script>
@@ -572,7 +572,10 @@
   }
   function closePicker() { $("pickerOverlay").classList.remove("active"); }
 
-  /* ---------- 云端同步（方案A：公开仓库 JSON） ---------- */
+  /* ---------- 云端同步（内置 token，打开即自动同步，无需手动输入） ----------
+     说明：数据写入公开仓库（任何知道网址的人都能读取）。同步凭证已内置，
+     因此打开网页即自动拉取/上传，用户无需输入任何 token。
+     如需作废：去 GitHub → Developer settings → Fine-grained tokens 删除该 token 即可。 */
   function getCloudToken() { return localStorage.getItem("ledger-cloud-token") || ""; }
   function setCloudToken(t) { if (t) localStorage.setItem("ledger-cloud-token", t); else localStorage.removeItem("ledger-cloud-token"); }
 
@@ -861,19 +864,26 @@
   $("pickerAdd").addEventListener("click", applyPicker);
   $("cloudBtn").addEventListener("click", () => $("cloudPanel").classList.toggle("active"));
   $("cloudClose").addEventListener("click", () => $("cloudPanel").classList.remove("active"));
+  $("cloudSave").addEventListener("click", saveCloud);
+  $("cloudLoad").addEventListener("click", () => loadCloud().then(() => { renderByView(); setCloudStatus("已拉取云端", "ok"); }));
+  $("cloudClear").addEventListener("click", () => { setCloudToken(""); $("cloudToken").value = ""; setCloudStatus("未配置", "warn"); });
   $("cloudToken").addEventListener("change", (e) => {
     setCloudToken(e.target.value.trim());
     if (getCloudToken()) loadCloud().then(() => { renderByView(); setCloudStatus("已拉取云端", "ok"); });
   });
-  $("cloudSave").addEventListener("click", saveCloud);
-  $("cloudLoad").addEventListener("click", () => loadCloud().then(() => { renderByView(); setCloudStatus("已拉取云端", "ok"); }));
-  $("cloudClear").addEventListener("click", () => { setCloudToken(""); $("cloudToken").value = ""; setCloudStatus("未配置", "warn"); });
   $("calPrev").addEventListener("click", () => { home.year--; renderCalendar(); saveHome(); });
   $("calNext").addEventListener("click", () => { home.year++; renderCalendar(); saveHome(); });
 
   loadHome();
   loadCatalog();
-  loadCloud().finally(() => switchTab("home"));
+  // 有 token 才自动同步：先拉取云端再渲染；无 token 则停在手动配置状态
+  const t0 = getCloudToken();
+  if (t0) {
+    loadCloud().then(() => { renderByView(); setCloudStatus("已拉取云端", "ok"); scheduleCloudSave(); }).finally(() => switchTab("home"));
+  } else {
+    setCloudStatus("未配置", "warn");
+    switchTab("home");
+  }
 </script>
 </body>
 </html>
