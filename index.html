@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>记账助手</title>
+<style>
+  :root {
+    --green: #16a34a;
+    --green-light: #f0fdf4;
+    --red: #dc2626;
+    --red-light: #fef2f2;
+    --orange: #ea580c;
+    --orange-light: #fff7ed;
+    --ink: #1f2937;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --bg: #f7f8fa;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--ink); line-height: 1.5;
+    display: flex; flex-direction: column;
+  }
+  .app { flex: 1; display: flex; flex-direction: column; max-width: 960px; margin: 0 auto; width: 100%; padding: 16px 16px 80px; }
+
+  /* 视图切换 */
+  .view { display: none; }
+  .view.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+  header h1 { font-size: 20px; margin: 0 0 4px; text-align: center; }
+  .hint { font-size: 12px; color: var(--muted); margin: 2px 2px 12px; text-align: center; }
+
+  .meta {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 13px; color: var(--muted); margin-bottom: 12px;
+  }
+  .meta input {
+    border: none; border-bottom: 1px solid var(--line); background: transparent;
+    font-size: 13px; text-align: center; outline: none; color: var(--ink); font-family: inherit;
+  }
+  .meta input:focus { border-bottom-color: #2563eb; }
+  #unitName { width: 90px; }
+  #sheetMonth { width: 130px; }
+
+  .columns { display: flex; gap: 12px; flex: 1; min-height: 0; }
+  .col { flex: 1; display: flex; flex-direction: column; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .col-head { padding: 10px 12px; font-weight: 700; font-size: 15px; text-align: center; border-bottom: 1px solid var(--line); }
+  .asset-col .col-head { background: var(--green-light); color: var(--green); }
+  .liab-col .col-head { background: var(--red-light); color: var(--red); }
+  .col-sub { display: flex; font-size: 12px; color: var(--muted); padding: 6px 12px; border-bottom: 1px solid var(--line); }
+  .col-sub span:first-child { flex: 1; }
+  .col-sub span:last-child { width: 90px; text-align: right; }
+
+  .items { flex: 1; overflow-y: auto; min-height: 120px; }
+  .item { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .item:last-child { border-bottom: none; }
+  .item input {
+    border: none; outline: none; font-size: 14px; font-family: inherit; background: transparent; color: var(--ink);
+  }
+  .item .nm { flex: 1; min-width: 0; cursor: pointer; }
+  .item .nm.empty { color: var(--muted); }
+  .item .am { width: 90px; text-align: right; font-variant-numeric: tabular-nums; }
+  .asset-col .item .am { color: var(--green); }
+  .liab-col .item .am { color: var(--red); }
+  .item .del { color: #ccc; cursor: pointer; font-size: 18px; line-height: 1; padding: 2px; user-select: none; }
+  .item .del:hover { color: var(--red); }
+
+  /* 长按拖动排序 */
+  .items .item { touch-action: pan-y; transition: transform .18s ease; }
+  .items.sorting { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .items .item.dragging {
+    transition: none; position: relative; z-index: 5;
+    background: #fff; border-radius: 8px;
+    box-shadow: 0 10px 24px rgba(0,0,0,.16);
+  }
+
+  .add-row {
+    display: flex; justify-content: center; align-items: center;
+    padding: 6px 12px; margin: 2px 0;
+    background: transparent; color: var(--line);
+    font-size: 20px; cursor: pointer; line-height: 1;
+  }
+  .add-row:hover { color: var(--muted); background: var(--bg); }
+
+  .cat-add {
+    padding: 10px 12px; text-align: center; color: var(--muted);
+    cursor: pointer; border-top: 1px solid var(--line); font-size: 14px;
+  }
+  .cat-add:hover { color: #111; background: var(--bg); }
+
+  .placeholder { color: #bbb; font-size: 13px; padding: 12px; text-align: center; }
+  .placeholder.big { font-size: 15px; padding: 48px 12px; color: var(--muted); }
+
+  .totals { display: flex; gap: 12px; margin-top: 12px; }
+  .total {
+    flex: 1; background: #fff; border-radius: 10px; padding: 10px 14px;
+    display: flex; justify-content: space-between; align-items: center; font-size: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .total b { font-size: 17px; font-variant-numeric: tabular-nums; }
+  .total.asset b { color: var(--green); }
+  .total.liab b { color: var(--red); }
+
+  .result {
+    margin-top: 12px; padding: 14px; border-radius: 10px; text-align: center;
+    font-size: 15px; font-weight: 700;
+  }
+  .result.ok { background: var(--green-light); color: var(--green); }
+  .result.warn { background: var(--orange-light); color: var(--orange); }
+
+  .tabbar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #fff; border-top: 1px solid var(--line);
+    display: flex; justify-content: space-around; padding: 8px 0 calc(8px + env(safe-area-inset-bottom));
+    max-width: 960px; margin: 0 auto;
+  }
+  .tabbar a {
+    flex: 1; text-align: center; font-size: 13px; color: var(--muted); text-decoration: none; padding: 6px 0;
+  }
+  .tabbar a.active { color: #111; font-weight: 700; }
+
+  /* 账户选择面板 */
+  .picker-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 200;
+    display: none;
+  }
+  .picker-overlay.active { display: block; }
+  .picker-panel {
+    position: fixed; left: 0; top: 0; bottom: 0; width: 90%; max-width: 420px;
+    background: #fff; z-index: 201; transform: translateX(-100%); transition: transform .25s ease;
+    display: flex; flex-direction: column; box-shadow: 2px 0 12px rgba(0,0,0,.1);
+  }
+  .picker-overlay.active .picker-panel { transform: translateX(0); }
+  .picker-head {
+    padding: 14px 16px; border-bottom: 1px solid var(--line);
+    display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 16px;
+  }
+  .picker-close { border: none; background: transparent; font-size: 20px; color: var(--muted); cursor: pointer; }
+  .picker-body { flex: 1; overflow-y: auto; padding: 16px; }
+  .picker-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+  .picker-tile {
+    aspect-ratio: 1; background: #f9fafb; border: 1px solid var(--line); border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; padding: 6px;
+    text-align: center; font-size: 13px; cursor: pointer; word-break: break-all; overflow: hidden;
+  }
+  .picker-tile:hover { background: var(--bg); border-color: #2563eb; color: #2563eb; }
+  .picker-empty { grid-column: 1 / -1; text-align: center; padding: 32px; color: var(--muted); font-size: 14px; }
+
+  /* 日历 */
+  .cal-year {
+    display: flex; justify-content: center; align-items: center; gap: 16px;
+    font-size: 16px; font-weight: 700; margin-bottom: 12px;
+  }
+  .cal-year-btn { color: var(--muted); cursor: pointer; padding: 4px 10px; user-select: none; }
+  .cal-year-btn:hover { color: var(--ink); }
+  .cal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .cal-cell {
+    background: #fff; border-radius: 10px; padding: 14px 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); text-align: center; cursor: pointer;
+    border: 2px solid transparent;
+  }
+  .cal-cell.active { border-color: #2563eb; }
+  .cal-cell .cal-month { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+  .cal-cell .cal-sum { font-size: 16px; font-weight: 700; color: var(--red); }
+  .cal-cell .cal-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .cal-cell .cal-gap { font-size: 12px; color: var(--orange); margin-top: 4px; }
+
+  @media (max-width: 640px) {
+    .columns { flex-direction: column; }
+    .items { max-height: 240px; }
+    .item .am { width: 70px; }
+    .col-sub span:last-child { width: 70px; }
+    .picker-grid { grid-template-columns: repeat(4, 1fr); }
+    .cal-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- 首页：资产负债表 -->
+  <section class="view active" id="view-home">
+    <header><h1>资产负债表</h1></header>
+    <div class="meta">
+      <span>编制单位：<input id="unitName" value="个人" /></span>
+      <span><input type="month" id="sheetMonth" value="2026-01" /></span>
+      <span>单位：元</span>
+    </div>
+
+    <div class="columns">
+      <section class="col asset-col">
+        <div class="col-head">资产</div>
+        <div class="col-sub"><span>项目</span><span>金额</span></div>
+        <div class="items" id="assetList"></div>
+      </section>
+      <section class="col liab-col">
+        <div class="col-head">负债及所有者权益</div>
+        <div class="col-sub"><span>项目</span><span>金额</span></div>
+        <div class="items" id="liabList"></div>
+      </section>
+    </div>
+
+    <div class="totals">
+      <div class="total asset">资产合计 <b id="assetTotal">0.00</b></div>
+      <div class="total liab">负债合计 <b id="liabTotal">0.00</b></div>
+    </div>
+
+    <div class="result ok" id="result">已无欠款，剩余现金：0.00 元</div>
+  </section>
+
+  <!-- 资产：账户目录 -->
+  <section class="view" id="view-assets">
+    <header><h1>资产账户</h1></header>
+    <p class="hint">在这里添加你的资产 / 负债账户，首页的名称从这里选择。删除账户不会影响首页已填的数据。<b>长按账户可拖动调整顺序。</b></p>
+    <div class="columns">
+      <section class="col asset-col">
+        <div class="col-head">资产账户</div>
+        <div class="items" id="catAssetList"></div>
+        <div class="cat-add" id="addCatAsset">+ 添加资产账户</div>
+      </section>
+      <section class="col liab-col">
+        <div class="col-head">负债及所有者权益账户</div>
+        <div class="items" id="catLiabList"></div>
+        <div class="cat-add" id="addCatLiab">+ 添加负债账户</div>
+      </section>
+    </div>
+  </section>
+
+  <!-- 日历 -->
+  <section class="view" id="view-calendar">
+    <header><h1>日历</h1></header>
+    <div class="cal-year">
+      <span class="cal-year-btn" id="calPrev">‹</span>
+      <span id="calYear">2026 年</span>
+      <span class="cal-year-btn" id="calNext">›</span>
+    </div>
+    <div class="cal-grid" id="calGrid"></div>
+  </section>
+
+  <!-- 统计（占位） -->
+  <section class="view" id="view-stats">
+    <header><h1>统计</h1></header>
+    <div class="placeholder big">统计功能开发中</div>
+  </section>
+
+</div>
+
+<!-- 账户选择弹窗 -->
+<div class="picker-overlay" id="pickerOverlay">
+  <div class="picker-panel">
+    <div class="picker-head">
+      <span id="pickerTitle">选择账户</span>
+      <button class="picker-close" id="pickerClose">✕</button>
+    </div>
+    <div class="picker-body">
+      <div class="picker-grid" id="pickerGrid"></div>
+    </div>
+  </div>
+</div>
+
+<nav class="tabbar">
+  <a href="#" data-tab="home" class="active">首页</a>
+  <a href="#" data-tab="calendar">日历</a>
+  <a href="#" data-tab="assets">资产</a>
+  <a href="#" data-tab="stats">统计</a>
+</nav>
+
+<script>
+  const HOME_KEY = "ledger-home-v2";
+  const CAT_KEY = "ledger-catalog-v1";
+
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+  let home = {
+    unitName: "个人",
+    year: 2026,
+    month: 1,
+    data: {
+      "2026-01": {
+        assets: [{ id: uid(), catId: null, name: "", amount: 0 }],
+        liabilities: [{ id: uid(), catId: null, name: "", amount: 0 }]
+      }
+    }
+  };
+  let catalog = { assets: [], liabilities: [] };
+
+  function migrateV1() {
+    try {
+      const raw = localStorage.getItem("ledger-home-v1");
+      if (raw && !localStorage.getItem(HOME_KEY)) {
+        const p = JSON.parse(raw);
+        if (p && Array.isArray(p.assets) && Array.isArray(p.liabilities)) {
+          localStorage.setItem(HOME_KEY, JSON.stringify({
+            unitName: p.unitName || "个人",
+            year: 2026, month: 1,
+            data: { "2026-01": { assets: p.assets, liabilities: p.liabilities } }
+          }));
+        }
+      }
+    } catch (e) { console.warn("迁移旧数据失败", e); }
+  }
+
+  function loadHome() {
+    try {
+      migrateV1();
+      const raw = localStorage.getItem(HOME_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (p && typeof p.year === "number" && typeof p.month === "number" && p.data && typeof p.data === "object") {
+          home = Object.assign({}, home, p);
+        }
+      }
+    } catch (e) { console.warn("读取首页失败", e); }
+  }
+  function saveHome() {
+    try { localStorage.setItem(HOME_KEY, JSON.stringify(home)); } catch (e) { console.warn("保存首页失败", e); }
+  }
+  function loadCatalog() {
+    try {
+      const raw = localStorage.getItem(CAT_KEY);
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (p && Array.isArray(p.assets) && Array.isArray(p.liabilities)) catalog = p;
+      }
+    } catch (e) { console.warn("读取目录失败", e); }
+  }
+  function saveCatalog() {
+    try { localStorage.setItem(CAT_KEY, JSON.stringify(catalog)); } catch (e) { console.warn("保存目录失败", e); }
+  }
+
+  function currentKey() { return `${home.year}-${String(home.month).padStart(2, "0")}`; }
+  function currentData() {
+    const k = currentKey();
+    if (!home.data[k]) {
+      home.data[k] = {
+        assets: [{ id: uid(), catId: null, name: "", amount: 0 }],
+        liabilities: [{ id: uid(), catId: null, name: "", amount: 0 }]
+      };
+    }
+    return home.data[k];
+  }
+
+  function parseAmount(v) {
+    const n = parseFloat((v || "").toString().replace(/,/g, ""));
+    return isFinite(n) ? Math.abs(n) : 0;
+  }
+  function onAmountInput(e) {
+    let val = e.target.value.replace(/[^0-9.]/g, "");
+    const parts = val.split(".");
+    if (parts.length > 2) val = parts[0] + "." + parts.slice(1).join("");
+    if (val.startsWith(".")) val = "0" + val;
+    e.target.value = val;
+  }
+
+  /* ---------- 首页：资产负债表 ---------- */
+  function sortByName(items) {
+    return [...items].sort((a, b) => {
+      const emptyA = !a.name;
+      const emptyB = !b.name;
+      if (emptyA && emptyB) return 0;
+      if (emptyA) return 1;
+      if (emptyB) return -1;
+      if (a.name.length !== b.name.length) return a.name.length - b.name.length;
+      return a.name.localeCompare(b.name, "zh-CN");
+    });
+  }
+
+  function renderHome() {
+    $("unitName").value = home.unitName;
+    $("sheetMonth").value = currentKey();
+    const data = currentData();
+    renderHomeList("assetList", sortByName(data.assets), "assets");
+    renderHomeList("liabList", sortByName(data.liabilities), "liabilities");
+    updateTotals();
+    saveHome();
+  }
+
+  function renderHomeList(containerId, items, kind) {
+    const ul = $(containerId);
+    ul.innerHTML = "";
+    if (!items.length) {
+      ul.innerHTML = '<div class="placeholder">暂无条目</div>';
+    }
+    items.forEach((it) => {
+      const row = document.createElement("div");
+      row.className = "item";
+
+      const nm = document.createElement("input");
+      nm.className = "nm" + (it.name ? "" : " empty");
+      nm.readOnly = true;
+      nm.value = it.name || "选择账户";
+      nm.title = "点击选择账户";
+      nm.addEventListener("click", () => openPicker(kind, it, (c) => {
+        it.catId = c.id; it.name = c.name; renderHome(); saveHome();
+      }));
+
+      const am = document.createElement("input");
+      am.className = "am";
+      am.value = it.amount ? fmt(it.amount) : "";
+      am.placeholder = "0.00";
+      am.inputMode = "decimal";
+      am.addEventListener("input", onAmountInput);
+      am.addEventListener("change", (e) => { it.amount = parseAmount(e.target.value); updateTotals(); saveHome(); });
+
+      const del = document.createElement("span");
+      del.className = "del";
+      del.textContent = "×";
+      del.title = "删除本行";
+      del.addEventListener("click", () => removeHome(kind, it.id));
+
+      row.append(nm, am, del);
+      ul.appendChild(row);
+    });
+    ul.appendChild(homeAddBtn(kind));
+  }
+
+  function homeAddBtn(kind) {
+    const bar = document.createElement("div");
+    bar.className = "add-row";
+    bar.textContent = "+";
+    bar.title = "添加一行";
+    bar.addEventListener("click", () => {
+      const data = currentData();
+      const key = kind === "assets" ? "assets" : "liabilities";
+      data[key].push({ id: uid(), catId: null, name: "", amount: 0 });
+      renderHome();
+      const list = kind === "assets" ? "assetList" : "liabList";
+      const nms = $(list).querySelectorAll("input.nm");
+      if (nms.length) nms[nms.length - 1].focus();
+    });
+    return bar;
+  }
+
+  function removeHome(kind, id) {
+    const data = currentData();
+    const key = kind === "assets" ? "assets" : "liabilities";
+    data[key] = data[key].filter((it) => it.id !== id);
+    if (!data[key].length) data[key].push({ id: uid(), catId: null, name: "", amount: 0 });
+    renderHome();
+  }
+
+  function updateTotals() {
+    const data = currentData();
+    const assetTotal = data.assets.reduce((s, i) => s + i.amount, 0);
+    const liabTotal = data.liabilities.reduce((s, i) => s + i.amount, 0);
+    $("assetTotal").textContent = fmt(assetTotal);
+    $("liabTotal").textContent = fmt(liabTotal);
+
+    const res = $("result");
+    const gap = liabTotal - assetTotal;
+    if (gap <= 0) {
+      res.className = "result ok";
+      res.textContent = `已无欠款，剩余现金：${fmt(assetTotal - liabTotal)} 元`;
+    } else {
+      res.className = "result warn";
+      res.textContent = `待补齐金额：${fmt(gap)} 元`;
+    }
+  }
+
+  /* ---------- 账户选择面板 ---------- */
+  function openPicker(kind, item, onSelect) {
+    const cat = kind === "assets" ? catalog.assets : catalog.liabilities;
+    $("pickerTitle").textContent = kind === "assets" ? "选择资产账户" : "选择负债账户";
+    const grid = $("pickerGrid");
+    grid.innerHTML = "";
+    if (!cat.length) {
+      grid.innerHTML = '<div class="picker-empty">暂无账户，请先到「资产」页添加</div>';
+    } else {
+      cat.forEach((c) => {
+        const tile = document.createElement("div");
+        tile.className = "picker-tile";
+        tile.textContent = c.name || "（未命名）";
+        tile.addEventListener("click", () => { onSelect(c); });
+        grid.appendChild(tile);
+      });
+    }
+    $("pickerOverlay").classList.add("active");
+  }
+  function closePicker() { $("pickerOverlay").classList.remove("active"); }
+
+  /* ---------- 资产：账户目录 ---------- */
+  function renderCatalog() {
+    renderCatalogList("catAssetList", catalog.assets, "assets");
+    renderCatalogList("catLiabList", catalog.liabilities, "liabilities");
+  }
+
+  function renderCatalogList(containerId, items, kind) {
+    const ul = $(containerId);
+    ul.innerHTML = "";
+    if (!items.length) {
+      ul.innerHTML = '<div class="placeholder">暂无账户，点下方「+ 添加」</div>';
+      return;
+    }
+    items.forEach((c) => {
+      const row = document.createElement("div");
+      row.className = "item";
+      const nm = document.createElement("input");
+      nm.className = "nm";
+      nm.value = c.name;
+      nm.placeholder = kind === "assets" ? "如：现金、招商银行卡" : "如：信用卡、房贷";
+      nm.addEventListener("input", (e) => { c.name = e.target.value; saveCatalog(); });
+      const del = document.createElement("span");
+      del.className = "del";
+      del.textContent = "×";
+      del.title = "删除账户（不影响首页）";
+      del.addEventListener("click", () => removeCatalog(kind, c.id));
+      row.append(nm, del);
+      ul.appendChild(row);
+    });
+  }
+
+  function addCatalog(kind) {
+    const key = kind === "assets" ? "assets" : "liabilities";
+    catalog[key].push({ id: uid(), name: "" });
+    saveCatalog();
+    renderCatalog();
+    const list = kind === "assets" ? "catAssetList" : "catLiabList";
+    const inputs = $(list).querySelectorAll("input.nm");
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  }
+
+  function removeCatalog(kind, id) {
+    const key = kind === "assets" ? "assets" : "liabilities";
+    catalog[key] = catalog[key].filter((c) => c.id !== id);
+    saveCatalog();
+    renderCatalog();
+    if (activeView === "home") renderHome();
+  }
+
+  /* ---------- 账户长按拖动排序 ---------- */
+  const DRAG_DELAY = 450; // 长按触发时长 ms
+  const DRAG_TOL = 8;     // 触发前允许的抖动 px（超过视为滚动，取消长按）
+
+  function makeSortable(listEl, commit) {
+    let ctx = null; // { row, rows, rects, index, cur, y0, h }
+
+    // 拖动中屏蔽移动端长按弹出的系统菜单
+    listEl.addEventListener("contextmenu", (e) => { if (ctx) e.preventDefault(); });
+
+    listEl.addEventListener("pointerdown", (e) => {
+      if (e.button !== undefined && e.button !== 0) return;
+      const row = e.target.closest(".item");
+      if (!row || !listEl.contains(row)) return;
+      const startX = e.clientX || 0, startY = e.clientY || 0;
+      let engaged = false, timer = null;
+
+      const blockTouch = (ev) => { if (engaged) ev.preventDefault(); };
+      const onMove = (ev) => {
+        if (!engaged) {
+          if (Math.abs((ev.clientX || 0) - startX) > DRAG_TOL ||
+              Math.abs((ev.clientY || 0) - startY) > DRAG_TOL) cleanup();
+        } else if (ctx) {
+          ev.preventDefault();
+          dragMove(ev.clientY || 0);
+        }
+      };
+      const onUp = () => {
+        if (engaged && ctx) endDrag(true);
+        cleanup();
+      };
+      const cleanup = () => {
+        clearTimeout(timer); timer = null;
+        window.removeEventListener("pointermove", onMove, true);
+        window.removeEventListener("pointerup", onUp, true);
+        window.removeEventListener("pointercancel", onUp, true);
+        document.removeEventListener("touchmove", blockTouch);
+        if (engaged && ctx) endDrag(false);
+      };
+
+      timer = setTimeout(() => {
+        engaged = true;
+        startDrag(row, startY);
+      }, DRAG_DELAY);
+
+      window.addEventListener("pointermove", onMove, true);
+      window.addEventListener("pointerup", onUp, true);
+      window.addEventListener("pointercancel", onUp, true);
+      document.addEventListener("touchmove", blockTouch, { passive: false });
+    });
+
+    function startDrag(row, y) {
+      const rows = Array.from(listEl.querySelectorAll(".item"));
+      if (rows.length < 2) return; // 只有一行，无需排序
+      const rects = rows.map((r) => r.getBoundingClientRect());
+      const index = rows.indexOf(row);
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      ctx = { row, rows, rects, index, cur: index, y0: y, h: rects[index].height };
+      row.classList.add("dragging");
+      listEl.classList.add("sorting");
+      if (navigator.vibrate) { try { navigator.vibrate(15); } catch (_) {} }
+    }
+
+    function dragMove(y) {
+      ctx.row.style.transform = "translateY(" + (y - ctx.y0) + "px)";
+      // 计算插入位置：指针越过了几个其他行的中点
+      let ni = 0;
+      ctx.rows.forEach((r, i) => {
+        if (i === ctx.index) return;
+        const rc = ctx.rects[i];
+        if (y > rc.top + rc.height / 2) ni++;
+      });
+      if (ni !== ctx.cur) {
+        ctx.cur = ni;
+        const lo = Math.min(ctx.index, ni), hi = Math.max(ctx.index, ni);
+        ctx.rows.forEach((r, i) => {
+          if (i === ctx.index) return;
+          let shift = 0;
+          if (i > lo && i <= hi) shift = ctx.index < ni ? -ctx.h : ctx.h;
+          r.style.transform = shift ? "translateY(" + shift + "px)" : "";
+        });
+      }
+    }
+
+    function endDrag(commitIt) {
+      const { row, rows, index, cur } = ctx;
+      rows.forEach((r) => { r.style.transform = ""; });
+      row.classList.remove("dragging");
+      listEl.classList.remove("sorting");
+      ctx = null;
+      if (commitIt && index !== cur) commit(index, cur);
+    }
+  }
+
+  function commitCatalogOrder(kind, from, to) {
+    const key = kind === "assets" ? "assets" : "liabilities";
+    const arr = catalog[key];
+    if (!arr || from === to || from < 0 || from >= arr.length) return;
+    const [moved] = arr.splice(from, 1);
+    arr.splice(to, 0, moved);
+    saveCatalog();   // 顺序持久化，选择账户弹窗顺序同步
+    renderCatalog();
+  }
+
+  makeSortable($("catAssetList"), (f, t) => commitCatalogOrder("assets", f, t));
+  makeSortable($("catLiabList"), (f, t) => commitCatalogOrder("liabilities", f, t));
+
+  /* ---------- 日历 ---------- */
+  function renderCalendar() {
+    $("calYear").textContent = home.year + " 年";
+    const grid = $("calGrid");
+    grid.innerHTML = "";
+    for (let m = 1; m <= 12; m++) {
+      const k = `${home.year}-${String(m).padStart(2, "0")}`;
+      const d = home.data[k] || { assets: [], liabilities: [] };
+      const assetTotal = d.assets.reduce((s, i) => s + i.amount, 0);
+      const liabTotal = d.liabilities.reduce((s, i) => s + i.amount, 0);
+      const gap = liabTotal - assetTotal;
+      const cell = document.createElement("div");
+      cell.className = "cal-cell" + (m === home.month ? " active" : "");
+      cell.innerHTML = `
+        <div class="cal-month">${m} 月</div>
+        <div class="cal-sum">${fmt(liabTotal)}</div>
+        <div class="cal-label">负债合计</div>
+        ${gap > 0 && assetTotal > 0 ? `<div class="cal-gap">缺 ${fmt(gap)}</div>` : ""}
+      `;
+      cell.addEventListener("click", () => { home.month = m; switchTab("home"); });
+      grid.appendChild(cell);
+    }
+  }
+
+  /* ---------- Tab 切换 ---------- */
+  const VIEWS = { home: "view-home", assets: "view-assets", calendar: "view-calendar", stats: "view-stats" };
+  let activeView = "home";
+  function switchTab(name) {
+    activeView = name;
+    Object.keys(VIEWS).forEach((k) => $(VIEWS[k]).classList.toggle("active", k === name));
+    document.querySelectorAll(".tabbar a").forEach((a) => a.classList.toggle("active", a.dataset.tab === name));
+    if (name === "home") renderHome();
+    if (name === "assets") renderCatalog();
+    if (name === "calendar") renderCalendar();
+  }
+
+  document.querySelectorAll(".tabbar a").forEach((a) => {
+    a.addEventListener("click", (e) => { e.preventDefault(); switchTab(a.dataset.tab); });
+  });
+  $("addCatAsset").addEventListener("click", () => addCatalog("assets"));
+  $("addCatLiab").addEventListener("click", () => addCatalog("liabilities"));
+  $("unitName").addEventListener("change", (e) => { home.unitName = e.target.value; saveHome(); });
+  $("sheetMonth").addEventListener("change", (e) => {
+    const [y, m] = e.target.value.split("-").map(Number);
+    home.year = y; home.month = m;
+    renderHome(); saveHome();
+  });
+  $("pickerOverlay").addEventListener("click", (e) => { if (e.target === $("pickerOverlay")) closePicker(); });
+  $("pickerClose").addEventListener("click", closePicker);
+  $("calPrev").addEventListener("click", () => { home.year--; renderCalendar(); saveHome(); });
+  $("calNext").addEventListener("click", () => { home.year++; renderCalendar(); saveHome(); });
+
+  loadHome();
+  loadCatalog();
+  switchTab("home");
+</script>
+</body>
+</html>
