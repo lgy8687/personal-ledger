@@ -148,6 +148,11 @@
   }
   .picker-tile:hover { background: var(--bg); border-color: #2563eb; color: #2563eb; }
   .picker-empty { grid-column: 1 / -1; text-align: center; padding: 32px; color: var(--muted); font-size: 14px; }
+  .picker-tile.selected { background: #eff6ff; border-color: #2563eb; color: #1d4ed8; font-weight: 600; }
+  .picker-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); background: #fff; }
+  .picker-tip { font-size: 12px; color: var(--muted); }
+  .picker-add { border: none; background: #2563eb; color: #fff; font-size: 14px; font-weight: 600; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
+  .picker-add:disabled { background: #cbd5e1; cursor: not-allowed; }
 
   /* 日历 */
   .cal-year {
@@ -258,6 +263,10 @@
     <div class="picker-body">
       <div class="picker-grid" id="pickerGrid"></div>
     </div>
+    <div class="picker-foot">
+      <span class="picker-tip">可多选，勾选后批量添加</span>
+      <button class="picker-add" id="pickerAdd" disabled>添加选中 (0)</button>
+    </div>
   </div>
 </div>
 
@@ -271,6 +280,12 @@
 <script>
   const HOME_KEY = "ledger-home-v2";
   const CAT_KEY = "ledger-catalog-v1";
+
+  // 账户选择面板（多选）状态
+  let pickerKind = "assets";
+  let pickerMode = "multi";   // 'multi' = 批量添加；'single' = 改某行
+  let pickerRow = null;
+  let pickerSel = new Set();
 
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -395,9 +410,7 @@
       nm.readOnly = true;
       nm.value = it.name || "选择账户";
       nm.title = "点击选择账户";
-      nm.addEventListener("click", () => openPicker(kind, it, (c) => {
-        it.catId = c.id; it.name = c.name; renderHome(); saveHome();
-      }));
+      nm.addEventListener("click", () => openPicker(kind, { mode: "single", item: it }));
 
       const am = document.createElement("input");
       am.className = "am";
@@ -424,15 +437,7 @@
     bar.className = "add-row";
     bar.textContent = "+";
     bar.title = "添加一行";
-    bar.addEventListener("click", () => {
-      const data = currentData();
-      const key = kind === "assets" ? "assets" : "liabilities";
-      data[key].push({ id: uid(), catId: null, name: "", amount: 0 });
-      renderHome();
-      const list = kind === "assets" ? "assetList" : "liabList";
-      const nms = $(list).querySelectorAll("input.nm");
-      if (nms.length) nms[nms.length - 1].focus();
-    });
+      bar.addEventListener("click", () => openPicker(kind));
     return bar;
   }
 
@@ -463,9 +468,15 @@
   }
 
   /* ---------- 账户选择面板 ---------- */
-  function openPicker(kind, item, onSelect) {
+  function openPicker(kind, opts) {
+    pickerKind = kind;
+    opts = opts || {};
+    pickerMode = opts.mode || "multi";
+    pickerRow = opts.item || null;
     const cat = kind === "assets" ? catalog.assets : catalog.liabilities;
-    $("pickerTitle").textContent = kind === "assets" ? "选择资产账户" : "选择负债账户";
+    $("pickerTitle").textContent = (kind === "assets" ? "选择资产账户" : "选择负债账户") + (pickerMode === "single" ? "（可多选）" : "");
+    pickerSel = new Set();
+    if (pickerMode === "single" && pickerRow && pickerRow.catId) pickerSel.add(pickerRow.catId);
     const grid = $("pickerGrid");
     grid.innerHTML = "";
     if (!cat.length) {
@@ -473,13 +484,48 @@
     } else {
       cat.forEach((c) => {
         const tile = document.createElement("div");
-        tile.className = "picker-tile";
+        tile.className = "picker-tile" + (pickerSel.has(c.id) ? " selected" : "");
         tile.textContent = c.name || "（未命名）";
-        tile.addEventListener("click", () => { onSelect(c); });
+        tile.addEventListener("click", () => {
+          if (pickerSel.has(c.id)) pickerSel.delete(c.id);
+          else pickerSel.add(c.id);
+          tile.classList.toggle("selected");
+          updatePickerAddBtn();
+        });
         grid.appendChild(tile);
       });
     }
+    updatePickerAddBtn();
     $("pickerOverlay").classList.add("active");
+  }
+
+  function updatePickerAddBtn() {
+    const n = pickerSel.size;
+    const btn = $("pickerAdd");
+    btn.textContent = pickerMode === "single" ? `确定 (${n})` : `添加选中 (${n})`;
+    btn.disabled = n === 0;
+  }
+
+  function applyPicker() {
+    const cat = pickerKind === "assets" ? catalog.assets : catalog.liabilities;
+    const chosen = cat.filter((c) => pickerSel.has(c.id));
+    if (!chosen.length) { closePicker(); return; }
+    const data = currentData();
+    const key = pickerKind === "assets" ? "assets" : "liabilities";
+    if (pickerMode === "single" && pickerRow) {
+      pickerRow.catId = chosen[0].id;
+      pickerRow.name = chosen[0].name;
+      for (let i = 1; i < chosen.length; i++) {
+        data[key].push({ id: uid(), catId: chosen[i].id, name: chosen[i].name, amount: 0 });
+      }
+    } else {
+      chosen.forEach((c) => {
+        data[key].push({ id: uid(), catId: c.id, name: c.name, amount: 0 });
+      });
+    }
+    closePicker();
+    renderHome();
+    saveHome();
   }
   function closePicker() { $("pickerOverlay").classList.remove("active"); }
 
@@ -688,6 +734,7 @@
   });
   $("pickerOverlay").addEventListener("click", (e) => { if (e.target === $("pickerOverlay")) closePicker(); });
   $("pickerClose").addEventListener("click", closePicker);
+  $("pickerAdd").addEventListener("click", applyPicker);
   $("calPrev").addEventListener("click", () => { home.year--; renderCalendar(); saveHome(); });
   $("calNext").addEventListener("click", () => { home.year++; renderCalendar(); saveHome(); });
 
