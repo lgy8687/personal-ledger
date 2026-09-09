@@ -192,10 +192,24 @@
   .cal-cell .cal-gap { font-size: 12px; color: var(--orange); margin-top: 4px; }
 
   @media (max-width: 640px) {
-    .columns { flex-direction: column; }
-    .items { max-height: 240px; }
-    .item .am { width: 70px; }
-    .col-sub span:last-child { width: 70px; }
+    .app { padding: 12px 10px 78px; }
+    .meta { gap: 6px; font-size: 11px; }
+    #unitName { width: 58px; }
+    #sheetMonth { width: 106px; }
+    .columns { flex-direction: row; align-items: stretch; gap: 8px; }
+    .col { min-width: 0; border-radius: 10px; }
+    .col-head { padding: 9px 5px; font-size: 14px; white-space: nowrap; }
+    .col-sub { padding: 5px 7px; font-size: 11px; }
+    .items { max-height: 320px; overflow-y: auto; }
+    .item { gap: 3px; padding: 9px 7px; }
+    .item input { font-size: 13px; }
+    .item .am { width: 68px; font-size: 13px; }
+    .item .del { font-size: 16px; padding: 1px; }
+    .col-sub span:last-child { width: 68px; }
+    .add-row { padding: 5px 8px; }
+    .totals { gap: 8px; }
+    .total { padding: 9px 8px; font-size: 12px; }
+    .total b { font-size: 14px; }
     .picker-grid { grid-template-columns: repeat(4, 1fr); }
     .cal-grid { grid-template-columns: repeat(2, 1fr); }
   }
@@ -460,7 +474,19 @@
       am.value = it.amount ? fmt(it.amount) : "";
       am.placeholder = "0.00";
       am.inputMode = "decimal";
+      am.autocomplete = "off";
+      am.enterKeyHint = "done";
       am.addEventListener("input", onAmountInput);
+      am.addEventListener("focus", (e) => {
+        e.target.value = e.target.value.replace(/,/g, "");
+        e.target.select();
+      });
+      am.addEventListener("blur", (e) => {
+        it.amount = parseAmount(e.target.value);
+        e.target.value = it.amount ? fmt(it.amount) : "";
+        updateTotals();
+        saveHome();
+      });
       am.addEventListener("change", (e) => { it.amount = parseAmount(e.target.value); updateTotals(); saveHome(); });
 
       const del = document.createElement("span");
